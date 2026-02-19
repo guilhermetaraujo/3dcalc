@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>3D ERP - Sincronizado</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { 
+            background-color: #f3f4f6;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .active-tab { 
+            border-bottom: 3px solid #4f46e5; 
+            color: #4f46e5;
+            font-weight: 700;
+        }
+        button { cursor: pointer; }
+        .edit-mode { background-color: #fef3c7; }
+        
+        .card-hover {
+            transition: all 0.2s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+        .toast.show {
+            display: flex;
+            animation: fadeIn 0.3s ease-out;
+        }
+        .toast.success { background: #059669; }
+        .toast.error { background: #dc2626; }
+        .toast.info { background: #2563eb; }
+        .toast.warning { background: #d97706; }
+        
+        /* Loading spinner */
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Indicador de sincronização */
+        .sync-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            background: #e0f2fe;
+            color: #0369a1;
+        }
+        .sync-indicator i {
+            font-size: 8px;
+        }
+        
+        input:focus {
+            outline: none;
+            ring: 2px solid #4f46e5;
+            border-color: #4f46e5;
+        }
+    </style>
+</head>
+<body class="p-4 pb-20">
+    <!-- Toast notification -->
+    <div id="toast" class="toast">
+        <i id="toastIcon" class="fas fa-check-circle"></i>
+        <span id="toastMessage"></span>
+    </div>
+    
+    <div class="max-w-md mx-auto">
+        
+        <!-- NAVBAR -->
+        <div class="bg-white rounded-2xl shadow-md flex mb-4 p-1">
+            <button class="tab-btn flex-1 py-3 font-medium rounded-xl transition-all duration-200 active-tab" data-tab="calculo">
+                <i class="fas fa-calculator mr-2"></i>Calcular
+            </button>
+            <button class="tab-btn flex-1 py-3 font-medium rounded-xl transition-all duration-200" data-tab="config">
+                <i class="fas fa-cog mr-2"></i>Config
+            </button>
+            <button class="tab-btn flex-1 py-3 font-medium rounded-xl transition-all duration-200" data-tab="produtos">
+                <i class="fas fa-box mr-2"></i>Produtos
+                <span id="produtoCount" class="ml-1 bg-indigo-100 text-indigo-700 text-xs px-1.5 py-0.5 rounded-full"></span>
+            </button>
+        </div>
+
+        <!-- CONTEÚDO DAS ABAS -->
+        <div id="calculo" class="tab-content active space-y-4 fade-in"></div>
+        <div id="config" class="tab-content space-y-4 fade-in"></div>
+        <div id="produtos" class="tab-content space-y-4 fade-in"></div>
+
+    </div>
+
+    <script>
+        // ============================================
+        // SISTEMA DE TOAST (NOTIFICAÇÕES)
+        // ============================================
+        function mostrarToast(mensagem, tipo = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            const toastIcon = document.getElementById('toastIcon');
+            
+            toast.className = 'toast';
+            toast.classList.add('show', tipo);
+            toastMessage.textContent = mensagem;
+            
+            if (tipo === 'success') toastIcon.className = 'fas fa-check-circle';
+            else if (tipo === 'error') toastIcon.className = 'fas fa-exclamation-circle';
+            else if (tipo === 'info') toastIcon.className = 'fas fa-info-circle';
+            else if (tipo === 'warning') toastIcon.className = 'fas fa-exclamation-triangle';
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+        
+        // ============================================
+        // CÓDIGO PRINCIPAL
+        // ============================================
+        console.log('🚀 Iniciando aplicação principal...');
+        
+        // Variável para controle de edição
+        let produtoEditandoId = null;
+        let syncInterval = null;
+        
+        // Sistema de abas
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => {
+                    b.classList.remove('active-tab', 'bg-indigo-50', 'text-indigo-600');
+                    b.classList.add('text-gray-600');
+                });
+                
+                this.classList.add('active-tab', 'bg-indigo-50', 'text-indigo-600');
+                this.classList.remove('text-gray-600');
+                
+                const tabId = this.getAttribute('data-tab');
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                
+                if (tabId === 'calculo') renderizarCalculadora();
+                if (tabId === 'config') renderizarConfig();
+                if (tabId === 'produtos') renderizarProdutos();
+            });
+        });
+
+        // Dados
+        let extras = [{ id: 1, nome: 'Embalagem', valor: 2.50 }];
+
+        // Renderizar calculadora
+        function renderizarCalculadora() {
+            const div = document.getElementById('calculo');
+            
+            const confFilamento = localStorage.getItem('confFilamento') || '120';
+            const confKwh = localStorage.getItem('confKwh') || '0.85';
+            const confWatts = localStorage.getItem('confWatts') || '200';
+            const confTaxa = localStorage.getItem('confTaxa') || '20';
+            const confMargem = localStorage.getItem('confMargem') || '35';
+            
+            const editMode = produtoEditandoId ? true : false;
+            const editIndicator = editMode ? '<span class="text-xs bg-yellow-200 text-yellow-800 px-3 py-1 rounded-full ml-2 font-medium"><i class="fas fa-edit mr-1"></i>EDITANDO</span>' : '';
+            const cancelButton = editMode ? '<button onclick="cancelarEdicao()" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white py-3 rounded-xl font-bold transition-all"><i class="fas fa-times mr-2"></i>CANCELAR</button>' : '';
+            
+            let html = `
+                <div class="bg-white p-5 rounded-2xl shadow-md card-hover">
+                    <div class="flex items-center gap-2 mb-4">
+                        <i class="fas fa-cube text-indigo-500 text-xl"></i>
+                        <input type="text" id="nomeProduto" class="flex-1 text-xl font-bold border-0 border-b-2 border-gray-200 p-2 focus:border-indigo-500 transition-all" placeholder="Nome do Produto" value="${editMode ? document.getElementById('nomeProduto')?.value || '' : ''}">
+                        ${editIndicator}
+                    </div>
+                    <input type="hidden" id="produtoEditandoId" value="${produtoEditandoId || ''}">
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="bg-gray-50 p-4 rounded-xl">
+                            <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Peso (g)</label>
+                            <input type="number" id="pesoProduto" class="w-full text-3xl font-black p-2 bg-transparent text-center" value="${editMode ? document.getElementById('pesoProduto')?.value || 0 : 0}" onchange="calcularPreco()" step="1">
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-xl">
+                            <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Tempo (h)</label>
+                            <input type="number" id="tempoProduto" class="w-full text-3xl font-black p-2 bg-transparent text-center" value="${editMode ? document.getElementById('tempoProduto')?.value || 0 : 0}" onchange="calcularPreco()" step="0.1">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-5 rounded-2xl shadow-md card-hover">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="font-bold text-gray-700"><i class="fas fa-plus-circle text-indigo-500 mr-2"></i>Custos Adicionais</span>
+                        <button onclick="adicionarCusto()" class="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-full text-sm font-bold hover:bg-indigo-100 transition-all">
+                            <i class="fas fa-plus mr-1"></i>Adicionar
+                        </button>
+                    </div>
+                    <div id="listaCustos" class="space-y-2"></div>
+                </div>
+
+                <div class="bg-gradient-to-br from-indigo-600 to-indigo-800 p-6 rounded-2xl text-white text-center shadow-xl">
+                    <p class="text-sm font-medium opacity-90 mb-1"><i class="fas fa-tag mr-1"></i>PREÇO SUGERIDO SHOPEE</p>
+                    <p class="text-5xl font-black mb-3">R$ <span id="precoVenda" class="text-5xl">0,00</span></p>
+                    
+                    <div class="bg-white/10 backdrop-blur-sm p-4 rounded-xl flex justify-between items-center mb-4">
+                        <span class="font-medium"><i class="fas fa-chart-line mr-2"></i>Lucro Real:</span>
+                        <span class="text-2xl font-bold text-emerald-300">R$ <span id="lucroVenda">0,00</span></span>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <button onclick="salvarProduto()" class="flex-1 bg-white text-indigo-600 py-3 rounded-xl font-bold hover:bg-gray-100 transition-all transform hover:scale-105">
+                            <i class="fas ${editMode ? 'fa-sync-alt' : 'fa-save'} mr-2"></i>${editMode ? 'ATUALIZAR' : 'SALVAR'}
+                        </button>
+                        ${cancelButton}
+                    </div>
+                    ${editMode ? '<p class="text-xs mt-3 text-yellow-200"><i class="fas fa-info-circle mr-1"></i>Editando produto. Clique em ATUALIZAR para salvar as alterações.</p>' : ''}
+                </div>
+            `;
+            
+            div.innerHTML = html;
+            renderizarCustos();
+            calcularPreco();
+        }
+
+        function renderizarCustos() {
+            const container = document.getElementById('listaCustos');
+            if (!container) return;
+            
+            let html = '';
+            extras.forEach(e => {
+                html += `
+                    <div class="flex gap-2 items-center bg-gray-50 p-2 rounded-xl">
+                        <input type="text" value="${e.nome}" onchange="atualizarCusto(${e.id}, 'nome', this.value)" class="flex-1 p-3 bg-white border-0 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200" placeholder="Item">
+                        <div class="relative">
+                            <span class="absolute left-3 top-3 text-gray-400">R$</span>
+                            <input type="number" value="${e.valor}" onchange="atualizarCusto(${e.id}, 'valor', this.value)" class="w-24 p-3 pl-8 bg-white border-0 rounded-lg text-sm font-bold text-right focus:ring-2 focus:ring-indigo-200" step="0.01">
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        // Funções globais
+        window.adicionarCusto = function() {
+            extras.push({ id: Date.now(), nome: '', valor: 0 });
+            renderizarCustos();
+        }
+
+        window.atualizarCusto = function(id, campo, valor) {
+            const item = extras.find(e => e.id === id);
+            if (item) {
+                item[campo] = campo === 'valor' ? parseFloat(valor) || 0 : valor;
+                calcularPreco();
+            }
+        }
+
+        window.calcularPreco = function() {
+            const precoKg = parseFloat(document.getElementById('confFilamento')?.value || localStorage.getItem('confFilamento') || 120);
+            const kwh = parseFloat(document.getElementById('confKwh')?.value || localStorage.getItem('confKwh') || 0.85);
+            const watts = parseFloat(document.getElementById('confWatts')?.value || localStorage.getItem('confWatts') || 200);
+            const taxa = parseFloat(document.getElementById('confTaxa')?.value || localStorage.getItem('confTaxa') || 20);
+            const margem = parseFloat(document.getElementById('confMargem')?.value || localStorage.getItem('confMargem') || 35);
+            const peso = parseFloat(document.getElementById('pesoProduto')?.value || 0);
+            const tempo = parseFloat(document.getElementById('tempoProduto')?.value || 0);
+
+            const custoMat = (peso / 1000) * precoKg;
+            const custoEne = (watts / 1000) * tempo * kwh;
+            const custoExt = extras.reduce((acc, curr) => acc + (curr.valor || 0), 0);
+            
+            const custoTotal = custoMat + custoEne + custoExt;
+            const divisor = 1 - ((taxa + margem) / 100);
+            let venda = divisor > 0 ? custoTotal / divisor : 0;
+            let lucro = venda * (margem / 100);
+
+            const precoEl = document.getElementById('precoVenda');
+            const lucroEl = document.getElementById('lucroVenda');
+            
+            if (precoEl) precoEl.innerText = venda.toFixed(2);
+            if (lucroEl) lucroEl.innerText = lucro.toFixed(2);
+        }
+
+        // ============================================
+        // FUNÇÃO SALVAR/ATUALIZAR PRODUTO
+        // ============================================
+        window.salvarProduto = async function() {
+            const nome = document.getElementById('nomeProduto')?.value || 'Sem nome';
+            const peso = document.getElementById('pesoProduto')?.value || 0;
+            const tempo = document.getElementById('tempoProduto')?.value || 0;
+            const venda = document.getElementById('precoVenda')?.innerText || '0.00';
+            const lucro = document.getElementById('lucroVenda')?.innerText || '0.00';
+            
+            if (peso == 0 && tempo == 0) {
+                mostrarToast('Preencha peso ou tempo', 'error');
+                return;
+            }
+            
+            // Se estiver editando
+            if (produtoEditandoId) {
+                await atualizarProdutoExistente(produtoEditandoId, { nome, peso, tempo, venda, lucro });
+            } else {
+                // Criar novo produto
+                const novoProduto = {
+                    id: Date.now(),
+                    nome: nome,
+                    peso: peso,
+                    tempo: tempo,
+                    venda: venda,
+                    lucro: lucro,
+                    data: new Date().toLocaleDateString()
+                };
+                
+                // Salvar localmente (temporário)
+                let produtos = JSON.parse(localStorage.getItem('produtos')) || [];
+                produtos.push(novoProduto);
+                localStorage.setItem('produtos', JSON.stringify(produtos));
+                
+                // Tentar salvar no Supabase
+                if (window.supabaseClient && navigator.onLine) {
+                    mostrarToast('Salvando na nuvem...', 'info');
+                    const salvou = await window.salvarNoSupabase(novoProduto);
+                    if (salvou) {
+                        mostrarToast('✅ Produto salvo na nuvem!', 'success');
+                        // Forçar sincronização para atualizar todos dispositivos
+                        await window.forcarSincronizacao();
+                    } else {
+                        mostrarToast('📱 Aguardando internet para sincronizar', 'warning');
+                    }
+                } else {
+                    mostrarToast('📱 Produto salvo localmente (offline)', 'info');
+                }
+            }
+            
+            // Limpar campos e sair do modo edição
+            document.getElementById('nomeProduto').value = '';
+            document.getElementById('pesoProduto').value = '';
+            document.getElementById('tempoProduto').value = '';
+            produtoEditandoId = null;
+            calcularPreco();
+            
+            // Atualizar contador na aba
+            atualizarContadorProdutos();
+            
+            // Se estiver na tela de produtos, atualiza
+            if (document.querySelector('.tab-btn.active-tab')?.getAttribute('data-tab') === 'produtos') {
+                renderizarProdutos();
+            } else {
+                renderizarCalculadora();
+            }
+        }
+
+        // Função para atualizar produto existente
+        async function atualizarProdutoExistente(id, dados) {
+            // Atualizar localmente
+            let produtos = JSON.parse(localStorage.getItem('produtos')) || [];
+            const index = produtos.findIndex(p => p.id === id);
+            
+            if (index !== -1) {
+                produtos[index] = {
+                    ...produtos[index],
+                    nome: dados.nome,
+                    peso: dados.peso,
+                    tempo: dados.tempo,
+                    venda: dados.venda,
+                    lucro: dados.lucro,
+                    data: new Date().toLocaleDateString()
+                };
+                localStorage.setItem('produtos', JSON.stringify(produtos));
+            }
+            
+            // Tentar atualizar no Supabase
+            if (window.supabaseClient && navigator.onLine) {
+                mostrarToast('Atualizando na nuvem...', 'info');
+                const atualizou = await window.atualizarNoSupabase(id, dados);
+                if (atualizou) {
+                    mostrarToast('✅ Produto atualizado na nuvem!', 'success');
+                    await window.forcarSincronizacao();
+                } else {
+                    mostrarToast('📱 Aguardando internet para sincronizar', 'warning');
+                }
+            } else {
+                mostrarToast('📱 Produto atualizado localmente', 'info');
+            }
+        }
+
+        // Função para cancelar edição
+        window.cancelarEdicao = function() {
+            produtoEditandoId = null;
+            document.getElementById('nomeProduto').value = '';
+            document.getElementById('pesoProduto').value = '';
+            document.getElementById('tempoProduto').value = '';
+            renderizarCalculadora();
+            mostrarToast('Edição cancelada', 'info');
+        }
+
+        // Configurações
+        function renderizarConfig() {
+            const confFilamento = localStorage.getItem('confFilamento') || '120';
+            const confKwh = localStorage.getItem('confKwh') || '0.85';
+            const confWatts = localStorage.getItem('confWatts') || '200';
+            const confTaxa = localStorage.getItem('confTaxa') || '20';
+            const confMargem = localStorage.getItem('confMargem') || '35';
+            
+            const html = `
+                <div class="bg-white p-6 rounded-2xl shadow-md">
+                    <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                        <i class="fas fa-sliders-h text-indigo-500"></i> 
+                        Configurações de Custo
+                    </h2>
+                    
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                            <span class="font-medium text-gray-700"><i class="fas fa-spool text-indigo-500 mr-2"></i>Filamento (1kg)</span>
+                            <div class="flex items-center gap-1">
+                                <span class="text-indigo-600 font-bold">R$</span>
+                                <input type="number" id="confFilamento" value="${confFilamento}" class="w-24 p-3 bg-white border-0 rounded-lg text-right font-bold focus:ring-2 focus:ring-indigo-200" onchange="salvarConfig()">
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                            <span class="font-medium text-gray-700"><i class="fas fa-bolt text-yellow-500 mr-2"></i>Energia (kWh)</span>
+                            <input type="number" id="confKwh" value="${confKwh}" step="0.01" class="w-24 p-3 bg-white border-0 rounded-lg text-right font-bold focus:ring-2 focus:ring-indigo-200" onchange="salvarConfig()">
+                        </div>
+                        
+                        <div class="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                            <span class="font-medium text-gray-700"><i class="fas fa-microchip text-blue-500 mr-2"></i>Potência (Watts)</span>
+                            <input type="number" id="confWatts" value="${confWatts}" class="w-24 p-3 bg-white border-0 rounded-lg text-right font-bold focus:ring-2 focus:ring-indigo-200" onchange="salvarConfig()">
+                        </div>
+                        
+                        <div class="flex justify-between items-center p-3 bg-indigo-50 rounded-xl">
+                            <span class="font-medium text-indigo-700"><i class="fas fa-percent text-indigo-600 mr-2"></i>Taxa Shopee (%)</span>
+                            <input type="number" id="confTaxa" value="${confTaxa}" class="w-24 p-3 bg-white border-0 rounded-lg text-right font-bold focus:ring-2 focus:ring-indigo-200" onchange="salvarConfig()">
+                        </div>
+                        
+                        <div class="flex justify-between items-center p-3 bg-emerald-50 rounded-xl">
+                            <span class="font-medium text-emerald-700"><i class="fas fa-chart-pie text-emerald-600 mr-2"></i>Margem Lucro (%)</span>
+                            <input type="number" id="confMargem" value="${confMargem}" class="w-24 p-3 bg-white border-0 rounded-lg text-right font-bold focus:ring-2 focus:ring-indigo-200" onchange="salvarConfig()">
+                        </div>
+                    </div>
+                    
+                    <p class="text-xs text-gray-400 text-center mt-6">
+                        <i class="fas fa-sync-alt mr-1"></i> Alteraçães salvas automaticamente
+                    </p>
+                </div>
+            `;
+            
+            document.getElementById('config').innerHTML = html;
+        }
+
+        window.salvarConfig = function() {
+            localStorage.setItem('confFilamento', document.getElementById('confFilamento').value);
+            localStorage.setItem('confKwh', document.getElementById('confKwh').value);
+            localStorage.setItem('confWatts', document.getElementById('confWatts').value);
+            localStorage.setItem('confTaxa', document.getElementById('confTaxa').value);
+            localStorage.setItem('confMargem', document.getElementById('confMargem').value);
+            mostrarToast('⚙️ Configurações salvas!', 'success');
+            calcularPreco();
+        }
+
+        // Atualizar contador de produtos na aba
+        function atualizarContadorProdutos() {
+            const produtos = JSON.parse(localStorage.getItem('produtos')) || [];
+            const contador = document.getElementById('produtoCount');
+            if (contador) {
+                contador.textContent = produtos.length > 0 ? produtos.length : '';
+            }
+        }
+
+        // ============================================
+        // PRODUTOS (COM SINCRONIZAÇÃO FORÇADA)
+        // ============================================
+        async function renderizarProdutos() {
+            let produtos = [];
+            
+            // MOSTRAR CARREGANDO
+            document.getElementById('produtos').innerHTML = `
+                <div class="bg-white p-8 rounded-2xl shadow-md text-center">
+                    <div class="spinner mx-auto mb-3"></div>
+                    <p class="text-gray-500">Sincronizando com a nuvem...</p>
+                </div>
+            `;
+            
+            // PRIORIDADE MÁXIMA: Tentar carregar do Supabase (nuvem)
+            if (window.supabaseClient && navigator.onLine) {
+                const dados = await window.carregarDoSupabase();
+                if (dados) {
+                    produtos = dados;
+                    // Sobrescrever localStorage com dados da nuvem
+                    localStorage.setItem('produtos', JSON.stringify(produtos));
+                    mostrarToast('🔄 Dados sincronizados da nuvem', 'info');
+                }
+            }
+            
+            // FALLBACK: Se não conseguiu nuvem, usa local
+            if (produtos.length === 0) {
+                produtos = JSON.parse(localStorage.getItem('produtos')) || [];
+            }
+            
+            // Atualizar contador
+            atualizarContadorProdutos();
+            
+            let html = `
+                <div class="bg-white p-5 rounded-2xl shadow-md">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-xl font-bold flex items-center gap-2">
+                                <i class="fas fa-boxes text-indigo-500"></i>
+                                Meus Produtos
+                            </h2>
+                            ${navigator.onLine ? 
+                                '<span class="sync-indicator"><i class="fas fa-cloud-upload-alt"></i> Online</span>' : 
+                                '<span class="sync-indicator bg-gray-200 text-gray-600"><i class="fas fa-cloud"></i> Offline</span>'}
+                        </div>
+                        <button onclick="limparProdutos()" class="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-1">
+                            <i class="fas fa-trash-alt"></i> Limpar tudo
+                        </button>
+                    </div>
+            `;
+            
+            if (produtos.length === 0) {
+                html += `
+                    <div class="text-center py-12 text-gray-400">
+                        <i class="fas fa-box-open text-5xl mb-3"></i>
+                        <p class="font-medium">Nenhum produto salvo</p>
+                        <p class="text-sm mt-1">Os produtos que você salvar aparecerão aqui</p>
+                    </div>
+                `;
+            } else {
+                produtos.reverse().forEach(p => {
+                    const isEditing = produtoEditandoId === p.id;
+                    html += `
+                        <div class="border-b border-gray-100 py-4 flex justify-between items-center hover:bg-gray-50 transition-all ${isEditing ? 'bg-yellow-50' : ''}">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2">
+                                    <p class="font-bold text-gray-800">${p.nome}</p>
+                                    ${isEditing ? '<span class="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded-full font-medium"><i class="fas fa-edit mr-1"></i>EDITANDO</span>' : ''}
+                                </div>
+                                <div class="flex gap-3 text-xs text-gray-500 mt-1">
+                                    <span><i class="fas fa-weight-hanging mr-1"></i>${p.peso}g</span>
+                                    <span><i class="far fa-clock mr-1"></i>${p.tempo}h</span>
+                                    <span><i class="far fa-calendar mr-1"></i>${p.data}</span>
+                                </div>
+                                <div class="flex gap-4 mt-1">
+                                    <span class="text-indigo-600 font-bold">R$ ${p.venda}</span>
+                                    <span class="text-emerald-600 font-bold"><i class="fas fa-arrow-up mr-1"></i>R$ ${p.lucro}</span>
+                                </div>
+                            </div>
+                            <div class="flex gap-1">
+                                <button onclick="editarProduto(${p.id})" class="text-blue-500 hover:text-blue-700 p-2 hover:bg-blue-50 rounded-lg transition-all" title="Editar">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick="excluirProduto(${p.id})" class="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-all" title="Excluir">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            html += `</div>`;
+            document.getElementById('produtos').innerHTML = html;
+        }
+
+        // Função para editar produto
+        window.editarProduto = function(id) {
+            const produtos = JSON.parse(localStorage.getItem('produtos')) || [];
+            const produto = produtos.find(p => p.id === id);
+            
+            if (produto) {
+                produtoEditandoId = id;
+                
+                // Preencher campos na calculadora
+                document.getElementById('nomeProduto').value = produto.nome;
+                document.getElementById('pesoProduto').value = produto.peso;
+                document.getElementById('tempoProduto').value = produto.tempo;
+                
+                // Mudar para aba de cálculo
+                document.querySelector('.tab-btn[data-tab="calculo"]').click();
+                
+                // Recalcular preço
+                calcularPreco();
+                mostrarToast('✏️ Editando produto: ' + produto.nome, 'info');
+            }
+        }
+
+        // Função para excluir produto
+        window.excluirProduto = async function(id) {
+            if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+            
+            // Excluir localmente
+            let produtos = JSON.parse(localStorage.getItem('produtos')) || [];
+            produtos = produtos.filter(p => p.id !== id);
+            localStorage.setItem('produtos', JSON.stringify(produtos));
+            
+            // Tentar excluir no Supabase
+            if (window.supabaseClient && navigator.onLine) {
+                const excluiu = await window.excluirNoSupabase(id);
+                if (excluiu) {
+                    mostrarToast('🗑️ Produto excluído da nuvem!', 'success');
+                    // Forçar sincronização para todos dispositivos
+                    await window.forcarSincronizacao();
+                } else {
+                    mostrarToast('📱 Produto excluído localmente', 'info');
+                }
+            } else {
+                mostrarToast('✅ Produto excluído (offline)', 'success');
+            }
+            
+            // Se estava editando este produto, cancelar edição
+            if (produtoEditandoId === id) {
+                produtoEditandoId = null;
+                document.getElementById('nomeProduto').value = '';
+                document.getElementById('pesoProduto').value = '';
+                document.getElementById('tempoProduto').value = '';
+                calcularPreco();
+                renderizarCalculadora();
+            }
+            
+            atualizarContadorProdutos();
+            renderizarProdutos();
+        }
+
+        window.limparProdutos = async function() {
+            if (!confirm('Excluir TODOS os produtos? Esta ação não pode ser desfeita.')) return;
+            
+            localStorage.removeItem('produtos');
+            
+            if (window.supabaseClient && navigator.onLine) {
+                await window.limparTudoNoSupabase();
+                mostrarToast('🗑️ Todos produtos excluídos da nuvem!', 'success');
+                await window.forcarSincronizacao();
+            } else {
+                mostrarToast('✅ Todos produtos excluídos localmente', 'success');
+            }
+            
+            produtoEditandoId = null;
+            atualizarContadorProdutos();
+            renderizarProdutos();
+            
+            // Limpar campos se estiver na calculadora
+            if (document.getElementById('nomeProduto')) {
+                document.getElementById('nomeProduto').value = '';
+                document.getElementById('pesoProduto').value = '';
+                document.getElementById('tempoProduto').value = '';
+                calcularPreco();
+            }
+        }
+
+        // Iniciar
+        renderizarCalculadora();
+        atualizarContadorProdutos();
+    </script>
+
+    <!-- DEPOIS: Supabase com Sincronização Forçada -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // ============================================
+        // SUPABASE - CÓDIGO ISOLADO COM SINCRONIZAÇÃO
+        // ============================================
+        console.log('🌐 Iniciando módulo Supabase...');
+        
+        const SUPABASE_URL = 'https://sgbjzzrhsikqjqxgfsgg.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnYmp6enJoc2lrcWpxeGdmc2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MDg5NDksImV4cCI6MjA4NzA4NDk0OX0.Bp-KsbgEi78W52_KkWbXJCEDmllnjsI0HQqFacaQ3SI';
+        
+        try {
+            if (typeof supabase !== 'undefined') {
+                window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase configurado!');
+                testarConexao();
+                
+                // Iniciar sincronização automática a cada 30 segundos
+                setInterval(() => {
+                    if (navigator.onLine && window.supabaseClient) {
+                        window.forcarSincronizacao?.();
+                    }
+                }, 30000);
+            }
+        } catch (e) {
+            console.log('⚠️ Erro Supabase:', e.message);
+        }
+        
+        async function testarConexao() {
+            try {
+                const { error } = await window.supabaseClient
+                    .from('produtos')
+                    .select('count', { count: 'exact', head: true });
+                
+                if (!error) {
+                    console.log('✅ Banco OK!');
+                    carregarProdutosIniciais();
+                }
+            } catch (e) {
+                console.log('⚠️ Erro conexão:', e.message);
+            }
+        }
+        
+        // ============================================
+        // FUNÇÃO DE SINCRONIZAÇÃO FORÇADA (NOVA!)
+        // ============================================
+        window.forcarSincronizacao = async function() {
+            if (!window.supabaseClient || !navigator.onLine) return false;
+            
+            try {
+                console.log('🔄 Forçando sincronização...');
+                
+                // Buscar lista ATUALIZADA da nuvem
+                const { data, error } = await window.supabaseClient
+                    .from('produtos')
+                    .select('*')
+                    .order('id', { ascending: false });
+                
+                if (error) throw error;
+                
+                // Sobrescrever localStorage com dados da nuvem (FONTE DA VERDADE)
+                if (data) {
+                    localStorage.setItem('produtos', JSON.stringify(data));
+                    console.log(`✅ Sincronizado: ${data.length} produtos da nuvem`);
+                    
+                    // Atualizar contador
+                    const contador = document.getElementById('produtoCount');
+                    if (contador) {
+                        contador.textContent = data.length > 0 ? data.length : '';
+                    }
+                    
+                    // Atualizar interface se estiver na tela de produtos
+                    if (document.querySelector('.tab-btn.active-tab')?.getAttribute('data-tab') === 'produtos') {
+                        renderizarProdutos();
+                    }
+                    
+                    return true;
+                }
+            } catch (err) {
+                console.log('❌ Erro na sincronização:', err.message);
+                return false;
+            }
+        };
+        
+        async function carregarProdutosIniciais() {
+            try {
+                const { data, error } = await window.supabaseClient
+                    .from('produtos')
+                    .select('*')
+                    .order('id', { ascending: false });
+                
+                if (!error && data) {
+                    // SEMPRE usar dados da nuvem como verdade absoluta
+                    localStorage.setItem('produtos', JSON.stringify(data));
+                    console.log(`📦 Inicializado: ${data.length} produtos da nuvem`);
+                    
+                    // Atualizar contador
+                    const contador = document.getElementById('produtoCount');
+                    if (contador) {
+                        contador.textContent = data.length > 0 ? data.length : '';
+                    }
+                    
+                    if (document.querySelector('.tab-btn.active-tab')?.getAttribute('data-tab') === 'produtos') {
+                        renderizarProdutos();
+                    }
+                }
+            } catch (err) {
+                console.log('Erro ao carregar iniciais:', err);
+            }
+        }
+        
+        // Funções CRUD (mantidas iguais)
+        window.salvarNoSupabase = async (produto) => {
+            if (!window.supabaseClient) return false;
+            try {
+                const { error } = await window.supabaseClient.from('produtos').insert([produto]);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                console.log('Erro ao salvar:', err.message);
+                return false;
+            }
+        };
+        
+        window.atualizarNoSupabase = async (id, dados) => {
+            if (!window.supabaseClient) return false;
+            try {
+                const { error } = await window.supabaseClient
+                    .from('produtos')
+                    .update({ ...dados, data: new Date().toLocaleDateString() })
+                    .eq('id', id);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                console.log('Erro ao atualizar:', err.message);
+                return false;
+            }
+        };
+        
+        window.excluirNoSupabase = async (id) => {
+            if (!window.supabaseClient) return false;
+            try {
+                const { error } = await window.supabaseClient.from('produtos').delete().eq('id', id);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                console.log('Erro ao excluir:', err.message);
+                return false;
+            }
+        };
+        
+        window.limparTudoNoSupabase = async () => {
+            if (!window.supabaseClient) return false;
+            try {
+                const { error } = await window.supabaseClient.from('produtos').delete().neq('id', 0);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                console.log('Erro ao limpar:', err.message);
+                return false;
+            }
+        };
+        
+        window.carregarDoSupabase = async () => {
+            if (!window.supabaseClient) return null;
+            try {
+                const { data, error } = await window.supabaseClient
+                    .from('produtos')
+                    .select('*')
+                    .order('id', { ascending: false });
+                if (error) throw error;
+                return data;
+            } catch (err) {
+                console.log('Erro ao carregar:', err.message);
+                return null;
+            }
+        };
+    </script>
+</body>
+</html>
