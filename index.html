@@ -325,7 +325,7 @@
             </div>
         </div>
 
-        <!-- ==================== ABA PRODUTOS ==================== -->
+        <!-- ==================== ABA PRODUTOS (CORRIGIDA) ==================== -->
         <div id="abaProdutos" class="tab-content">
             <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -505,7 +505,7 @@
             } else if (aba === 'produtos') {
                 document.querySelectorAll('.tab-btn')[1].classList.add('active');
                 document.getElementById('abaProdutos').classList.add('active');
-                carregarProdutos();
+                carregarProdutos(); // Força recarregamento ao entrar na aba
             } else if (aba === 'vendas') {
                 document.querySelectorAll('.tab-btn')[2].classList.add('active');
                 document.getElementById('abaVendas').classList.add('active');
@@ -727,38 +727,48 @@
             adicionarVariacao();
         };
 
-        // ==================== FUNÇÕES DA ABA PRODUTOS ====================
+        // ==================== FUNÇÕES DA ABA PRODUTOS (CORRIGIDA) ====================
         window.carregarProdutos = function() {
             const container = document.getElementById('listaProdutos');
+            if (!container) {
+                console.error('Container listaProdutos não encontrado');
+                return;
+            }
+            
+            // Recarregar dados do localStorage
             produtos = JSON.parse(localStorage.getItem('produtos')) || [];
             
             if (produtos.length === 0) {
-                container.innerHTML = '<p style="text-align:center; color: var(--text-muted); padding:20px;">Nenhum produto cadastrado</p>';
+                container.innerHTML = '<p style="text-align:center; color: var(--text-muted); padding:40px;">Nenhum produto cadastrado</p>';
                 return;
             }
             
             let html = '';
             produtos.slice().reverse().forEach(prod => {
                 html += `
-                    <div class="produto-card">
-                        <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
+                    <div class="produto-card" style="margin-bottom: 15px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                             <div>
-                                <h3 style="font-weight:bold; font-size:1.1rem;">${prod.nome}</h3>
-                                <p style="font-size:0.8rem; color: var(--text-muted);">${prod.data}</p>
+                                <h3 style="font-weight:bold; font-size:1.2rem;">${prod.nome || 'Sem nome'}</h3>
+                                <p style="font-size:0.8rem; color: var(--text-muted);">${prod.data || ''}</p>
                             </div>
                             <div style="display:flex; gap:8px;">
-                                <button onclick="editarProduto(${prod.id})" style="background: var(--accent-primary); color:white; padding:4px 12px; border-radius:20px; border:none;">✏️ Editar</button>
-                                <button onclick="excluirProduto(${prod.id})" style="background: var(--accent-danger); color:white; padding:4px 12px; border-radius:20px; border:none;">🗑️ Excluir</button>
+                                <button onclick="editarProduto(${prod.id})" style="background: var(--accent-primary); color:white; padding:6px 15px; border-radius:20px; border:none; font-size:0.9rem;">
+                                    ✏️ Editar
+                                </button>
+                                <button onclick="excluirProduto(${prod.id})" style="background: var(--accent-danger); color:white; padding:6px 15px; border-radius:20px; border:none; font-size:0.9rem;">
+                                    🗑️ Excluir
+                                </button>
                             </div>
                         </div>
                         
-                        <div style="display:grid; gap:8px;">
-                            ${prod.variacoes.map(v => `
-                                <div style="background: var(--card-bg); padding:8px; border-radius:8px; display:flex; justify-content:space-between; border:1px solid var(--border-color);">
-                                    <span style="font-weight:500;">${v.nome}</span>
-                                    <span style="color: var(--accent-primary); font-weight:bold;">R$ ${v.preco.toFixed(2)}</span>
+                        <div style="display:grid; gap:8px; margin-top:10px;">
+                            ${prod.variacoes ? prod.variacoes.map(v => `
+                                <div style="background: var(--card-bg); padding:10px; border-radius:8px; display:flex; justify-content:space-between; border:1px solid var(--border-color);">
+                                    <span style="font-weight:500;">${v.nome || 'Variação'}</span>
+                                    <span style="color: var(--accent-primary); font-weight:bold;">R$ ${(v.preco || 0).toFixed(2)}</span>
                                 </div>
-                            `).join('')}
+                            `).join('') : '<p>Sem variações</p>'}
                         </div>
                     </div>
                 `;
@@ -1135,8 +1145,8 @@
         });
     </script>
 
-        <!-- ============================================ -->
-    <!-- SUPABASE - INTEGRAÇÃO COMPLETA (SUBSTITUA A PARTIR DAQUI) -->
+    <!-- ============================================ -->
+    <!-- SUPABASE - NÃO MEXER! (a partir daqui) -->
     <!-- ============================================ -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
@@ -1147,202 +1157,85 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnYmp6enJoc2lrcWpxeGdmc2dnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MDg5NDksImV4cCI6MjA4NzA4NDk0OX0.Bp-KsbgEi78W52_KkWbXJCEDmllnjsI0HQqFacaQ3SI';
         
         // Criar cliente Supabase
-        let supabase = null;
         try {
             if (typeof supabase !== 'undefined') {
-                supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                window.supabaseClient = supabase;
+                window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 console.log('✅ Supabase configurado!');
-                
-                // CARREGAR PRODUTOS DA NUVEM PRIORITARIAMENTE
-                carregarProdutosDaNuvem();
             }
         } catch (e) {
             console.log('⚠️ Erro Supabase:', e.message);
         }
         
         // ============================================
-        // FUNÇÃO PARA CARREGAR PRODUTOS DA NUVEM (PRIORITÁRIA)
+        // FUNÇÃO PARA FORÇAR SINCRONIZAÇÃO
         // ============================================
-        async function carregarProdutosDaNuvem() {
-            if (!supabase) {
-                console.log('📱 Modo local (sem nuvem)');
-                return;
-            }
+        window.forcarSincronizacao = async function() {
+            if (!window.supabaseClient) return false;
             
             try {
-                console.log('☁️ Buscando produtos da nuvem...');
-                const { data, error } = await supabase
+                console.log('🔄 Forçando sincronização com a nuvem...');
+                
+                // Buscar dados ATUAIS da nuvem
+                const { data: dadosNuvem, error } = await window.supabaseClient
                     .from('produtos')
                     .select('*')
                     .order('id', { ascending: false });
                 
                 if (error) throw error;
                 
-                if (data && data.length > 0) {
-                    // ATUALIZAR localStorage com dados da nuvem
-                    localStorage.setItem('produtos', JSON.stringify(data));
+                // ATUALIZAR localStorage com dados da nuvem (FONTE DA VERDADE!)
+                if (dadosNuvem) {
+                    localStorage.setItem('produtos', JSON.stringify(dadosNuvem));
+                    console.log(`✅ Sincronizado: ${dadosNuvem.length} produtos da nuvem`);
                     
-                    // ATUALIZAR variável global
+                    // Atualizar variável global
                     if (typeof produtos !== 'undefined') {
-                        produtos = data;
+                        produtos = dadosNuvem;
                     }
                     
-                    console.log(`✅ ${data.length} produtos carregados da nuvem`);
-                    
-                    // ATUALIZAR interface se estiver na aba produtos
-                    const abaAtiva = document.querySelector('.tab-btn.active')?.textContent;
-                    if (abaAtiva && abaAtiva.includes('Produtos') && typeof carregarProdutos === 'function') {
-                        carregarProdutos();
+                    // Se estiver na tela de produtos, recarregar
+                    const abaAtiva = document.querySelector('.tab-btn.active-tab')?.getAttribute('data-tab');
+                    if (abaAtiva === 'produtos' && typeof renderizarProdutos === 'function') {
+                        renderizarProdutos();
                     }
                     
-                    // Mostrar toast de confirmação
-                    if (typeof mostrarToast === 'function') {
-                        mostrarToast('📦 Produtos sincronizados da nuvem', 'sucesso');
-                    }
-                } else {
-                    console.log('📭 Nenhum produto na nuvem');
+                    return true;
                 }
             } catch (err) {
-                console.error('❌ Erro ao carregar da nuvem:', err.message);
-            }
-        }
-        
-        // ============================================
-        // FUNÇÃO PARA SALVAR PRODUTO NA NUVEM
-        // ============================================
-        window.salvarNoSupabase = async function(produto) {
-            if (!supabase) return false;
-            
-            try {
-                console.log('☁️ Salvando produto na nuvem:', produto);
-                
-                // Usar upsert para não duplicar
-                const { error } = await supabase
-                    .from('produtos')
-                    .upsert([produto], { onConflict: 'id' });
-                
-                if (error) throw error;
-                
-                console.log('✅ Produto salvo na nuvem');
-                return true;
-            } catch (err) {
-                console.error('❌ Erro ao salvar na nuvem:', err.message);
+                console.error('❌ Erro na sincronização:', err.message);
                 return false;
             }
         };
         
-        // ============================================
-        // FUNÇÃO PARA ATUALIZAR PRODUTO NA NUVEM
-        // ============================================
-        window.atualizarNoSupabase = async function(id, dados) {
-            if (!supabase) return false;
-            
-            try {
-                const { error } = await supabase
-                    .from('produtos')
-                    .update(dados)
-                    .eq('id', id);
-                
-                if (error) throw error;
-                console.log('✅ Produto atualizado na nuvem');
-                return true;
-            } catch (err) {
-                console.error('❌ Erro ao atualizar na nuvem:', err.message);
-                return false;
-            }
-        };
-        
-        // ============================================
-        // FUNÇÃO PARA EXCLUIR PRODUTO DA NUVEM
-        // ============================================
-        window.excluirNoSupabase = async function(id) {
-            if (!supabase) return false;
-            
-            try {
-                const { error } = await supabase
-                    .from('produtos')
-                    .delete()
-                    .eq('id', id);
-                
-                if (error) throw error;
-                console.log('✅ Produto excluído da nuvem');
-                return true;
-            } catch (err) {
-                console.error('❌ Erro ao excluir da nuvem:', err.message);
-                return false;
-            }
-        };
-        
-        // ============================================
-        // MODIFICAR FUNÇÃO SALVAR PRODUTO (PARA USAR NUVEM)
-        // ============================================
-        // Guardar referência à função original
-        const salvarProdutoOriginal = window.salvarProduto;
-        
-        // Sobrescrever função salvarProduto
-        window.salvarProduto = function() {
-            // Chamar função original primeiro
-            salvarProdutoOriginal();
-            
-            // Depois de salvar local, pegar o último produto e salvar na nuvem
-            setTimeout(async () => {
-                const produtosAtuais = JSON.parse(localStorage.getItem('produtos')) || [];
-                const ultimoProduto = produtosAtuais[produtosAtuais.length - 1];
-                
-                if (ultimoProduto && supabase) {
-                    const salvou = await window.salvarNoSupabase(ultimoProduto);
-                    if (salvou && typeof mostrarToast === 'function') {
-                        mostrarToast('☁️ Produto também salvo na nuvem!', 'sucesso');
-                    }
-                }
-            }, 500);
-        };
-        
-        // ============================================
-        // MODIFICAR FUNÇÃO EDITAR PRODUTO (PARA USAR NUVEM)
-        // ============================================
-        const editarProdutoOriginal = window.editarProduto;
-        
-        window.editarProduto = function(id) {
-            // Chamar função original
-            editarProdutoOriginal(id);
-            
-            // Guardar ID para quando salvar
-            window.produtoEditandoId = id;
-        };
-        
-        // ============================================
-        // MODIFICAR FUNÇÃO EXCLUIR PRODUTO (PARA USAR NUVEM)
-        // ============================================
-        const excluirProdutoOriginal = window.excluirProduto;
-        
-        window.excluirProduto = function(id) {
-            if (!confirm('Excluir este produto?')) return;
-            
-            // Excluir da nuvem primeiro (se disponível)
-            if (supabase) {
-                window.excluirNoSupabase(id);
-            }
-            
-            // Depois excluir local
-            produtos = produtos.filter(p => p.id !== id);
-            localStorage.setItem('produtos', JSON.stringify(produtos));
-            carregarProdutos();
-            mostrarToast('✅ Produto excluído', 'sucesso');
-        };
-        
-        // ============================================
-        // FUNÇÃO PARA FORÇAR SINCRONIZAÇÃO
-        // ============================================
-        window.forcarSincronizacao = async function() {
-            await carregarProdutosDaNuvem();
-        };
-        
-        // ============================================
-        // INICIALIZAR - CARREGAR DA NUVEM AO ABRIR
-        // ============================================
+        // Chamar sincronização ao iniciar
         setTimeout(() => {
-            carregarProdutosDaNuvem();
-        }, 1000);
+            window.forcarSincronizacao?.();
+        }, 2000);
+        
+        // Funções básicas do Supabase
+        window.salvarNoSupabase = async (produto) => {
+            if (!window.supabaseClient) return false;
+            try {
+                const { error } = await window.supabaseClient.from('produtos').insert([produto]);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                console.log('Erro ao salvar:', err.message);
+                return false;
+            }
+        };
+        
+        window.excluirNoSupabase = async (id) => {
+            if (!window.supabaseClient) return false;
+            try {
+                const { error } = await window.supabaseClient.from('produtos').delete().eq('id', id);
+                if (error) throw error;
+                return true;
+            } catch (err) {
+                console.log('Erro ao excluir:', err.message);
+                return false;
+            }
+        };
     </script>
+</body>
+</html>
