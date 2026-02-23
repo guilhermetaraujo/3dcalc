@@ -1197,13 +1197,17 @@
                     
                     console.log(`✅ ${data.length} produtos carregados da nuvem`);
                     
-                    // Atualizar interface se necessário
+                    // Atualizar interface
                     const abaAtiva = document.querySelector('.tab-btn.active')?.textContent || '';
                     if (abaAtiva.includes('Produtos') && typeof carregarProdutos === 'function') {
                         carregarProdutos();
                     }
                     
-                    mostrarToast(`📦 ${data.length} produtos sincronizados da nuvem`, 'sucesso');
+                    if (typeof mostrarToast === 'function') {
+                        mostrarToast(`📦 ${data.length} produtos sincronizados`, 'sucesso');
+                    }
+                } else {
+                    console.log('📭 Nenhum produto na nuvem');
                 }
             } catch (err) {
                 console.error('❌ Erro ao carregar da nuvem:', err.message);
@@ -1219,10 +1223,27 @@
             try {
                 console.log('☁️ Salvando produto na nuvem:', produto);
                 
-                // Usar upsert para não duplicar
-                const { error } = await supabase
+                // Verificar se o produto já existe
+                const { data: existing } = await supabase
                     .from('produtos')
-                    .upsert([produto], { onConflict: 'id' });
+                    .select('id')
+                    .eq('id', produto.id);
+                
+                let error;
+                if (existing && existing.length > 0) {
+                    // Atualizar existente
+                    const { error: updateError } = await supabase
+                        .from('produtos')
+                        .update(produto)
+                        .eq('id', produto.id);
+                    error = updateError;
+                } else {
+                    // Inserir novo
+                    const { error: insertError } = await supabase
+                        .from('produtos')
+                        .insert([produto]);
+                    error = insertError;
+                }
                 
                 if (error) throw error;
                 
@@ -1235,98 +1256,96 @@
         };
         
         // ============================================
-        // FUNÇÃO PARA ATUALIZAR PRODUTO NA NUVEM
-        // ============================================
-        window.atualizarNoSupabase = async function(id, dados) {
-            if (!supabase) return false;
-            
-            try {
-                const { error } = await supabase
-                    .from('produtos')
-                    .update(dados)
-                    .eq('id', id);
-                
-                if (error) throw error;
-                console.log('✅ Produto atualizado na nuvem');
-                return true;
-            } catch (err) {
-                console.error('❌ Erro ao atualizar na nuvem:', err.message);
-                return false;
-            }
-        };
-        
-        // ============================================
-        // FUNÇÃO PARA EXCLUIR PRODUTO DA NUVEM
-        // ============================================
-        window.excluirNoSupabase = async function(id) {
-            if (!supabase) return false;
-            
-            try {
-                const { error } = await supabase
-                    .from('produtos')
-                    .delete()
-                    .eq('id', id);
-                
-                if (error) throw error;
-                console.log('✅ Produto excluído da nuvem');
-                return true;
-            } catch (err) {
-                console.error('❌ Erro ao excluir da nuvem:', err.message);
-                return false;
-            }
-        };
-        
-        // ============================================
-        // MODIFICAR FUNÇÃO SALVAR PRODUTO (PARA USAR NUVEM)
+        // SOBRESCREVER FUNÇÃO SALVAR PRODUTO
         // ============================================
         // Guardar referência à função original
         const salvarProdutoOriginal = window.salvarProduto;
         
-        // Sobrescrever função salvarProduto
-        window.salvarProduto = function() {
-            // Chamar função original primeiro (salva local)
-            salvarProdutoOriginal();
+        // Nova função que salva local E na nuvem
+        window.salvarProduto = async function() {
+            console.log('💾 Salvando produto...');
             
-            // Depois de salvar local, pegar os produtos e salvar na nuvem
-            setTimeout(async () => {
-                if (!supabase) return;
-                
-                const produtosAtuais = JSON.parse(localStorage.getItem('produtos')) || [];
-                
-                // Se estamos editando, atualizar na nuvem
-                if (produtoEditandoId) {
-                    const produtoEditado = produtosAtuais.find(p => p.id === produtoEditandoId);
-                    if (produtoEditado) {
-                        await window.atualizarNoSupabase(produtoEditandoId, produtoEditado);
-                        mostrarToast('☁️ Produto atualizado na nuvem!', 'sucesso');
-                    }
-                } else {
-                    // Se é novo, salvar último produto
-                    const ultimoProduto = produtosAtuais[produtosAtuais.length - 1];
-                    if (ultimoProduto) {
-                        const salvou = await window.salvarNoSupabase(ultimoProduto);
-                        if (salvou) {
-                            mostrarToast('☁️ Produto também salvo na nuvem!', 'sucesso');
-                        }
-                    }
+            const nome = document.getElementById('produtoNome').value;
+            if (!nome) {
+                mostrarToast('Digite o nome do produto', 'erro');
+                return;
+            }
+            
+            const variacoes = [];
+            document.querySelectorAll('.variacao-item').forEach(div => {
+                variacoes.push({
+                    nome: div.querySelector('.var-nome').value,
+                    peso: parseFloat(div.querySelector('.var-peso').value) || 0,
+                    tempo: parseFloat(div.querySelector('.var-tempo').value) || 0,
+                    preco: parseFloat(div.querySelector('.var-preco').value) || 
+                           parseFloat(div.querySelector('.var-preco-sugerido').innerHTML.replace('R$', ''))
+                });
+            });
+            
+            const novoProduto = {
+                id: produtoEditandoId || Date.now(),
+                nome: nome,
+                variacoes: variacoes,
+                data: new Date().toLocaleDateString()
+            };
+            
+            // SALVAR LOCALMENTE
+            if (produtoEditandoId) {
+                const index = produtos.findIndex(p => p.id === produtoEditandoId);
+                if (index !== -1) {
+                    produtos[index] = novoProduto;
+                    mostrarToast('✅ Produto atualizado localmente!', 'sucesso');
                 }
-            }, 500);
+                produtoEditandoId = null;
+            } else {
+                produtos.push(novoProduto);
+                mostrarToast('✅ Produto salvo localmente!', 'sucesso');
+            }
+            
+            localStorage.setItem('produtos', JSON.stringify(produtos));
+            
+            // SALVAR NA NUVEM (se disponível)
+            if (supabase) {
+                const salvouNuvem = await window.salvarNoSupabase(novoProduto);
+                if (salvouNuvem) {
+                    mostrarToast('☁️ Também salvo na nuvem!', 'sucesso');
+                } else {
+                    mostrarToast('⚠️ Salvo apenas localmente (nuvem indisponível)', 'erro');
+                }
+            }
+            
+            // Limpar formulário
+            document.getElementById('produtoNome').value = '';
+            document.getElementById('listaVariacoes').innerHTML = '';
+            document.getElementById('custosVariaveis').innerHTML = '';
+            adicionarVariacao();
         };
         
         // ============================================
-        // MODIFICAR FUNÇÃO EXCLUIR PRODUTO (PARA USAR NUVEM)
+        // SOBRESCREVER FUNÇÃO EXCLUIR PRODUTO
         // ============================================
         const excluirProdutoOriginal = window.excluirProduto;
         
-        window.excluirProduto = function(id) {
+        window.excluirProduto = async function(id) {
             if (!confirm('Excluir este produto?')) return;
             
             // Excluir da nuvem primeiro (se disponível)
             if (supabase) {
-                window.excluirNoSupabase(id);
+                try {
+                    const { error } = await supabase
+                        .from('produtos')
+                        .delete()
+                        .eq('id', id);
+                    
+                    if (!error) {
+                        console.log('✅ Produto excluído da nuvem');
+                    }
+                } catch (err) {
+                    console.log('Erro ao excluir da nuvem:', err);
+                }
             }
             
-            // Depois excluir local
+            // Excluir local
             produtos = produtos.filter(p => p.id !== id);
             localStorage.setItem('produtos', JSON.stringify(produtos));
             carregarProdutos();
